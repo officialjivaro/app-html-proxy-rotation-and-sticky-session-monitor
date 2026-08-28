@@ -1,0 +1,25 @@
+{
+  "name": "aerod-proxy-rotation-sticky-session-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:worker": "wrangler dev",
+    "type-check": "vue-tsc -b && tsc -p worker-proxy-rotation-monitor/tsconfig.json --noEmit",
+    "build": "npm run type-check && vite build",
+    "test": "vitest run",
+    "deploy": "npm run build && wrangler deploy",
+    "preview": "vite preview"
+  },
+  "dependencies": { "vue": "^3.5.40" },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.5",
+    "vitest": "^3.2.4",
+    "vue-tsc": "^3.3.6",
+    "wrangler": "latest"
+  }
+}
