@@ -1,32 +1,29 @@
 import { ProxyRateLimiter } from './durableObject'
 import { ensurePublicDestination, probeProxy } from './proxyProbe'
 import { normalizeProxyInput } from './proxyValidation'
+import { resolveProxyMonitorRequestRoute } from './routing'
 import { hmac, ipFamily, securityHeaders } from './security'
 
 export { ProxyRateLimiter }
 
-interface Env {
-  ASSETS: Fetcher
-  RATE_LIMITS: DurableObjectNamespace<ProxyRateLimiter>
-  RATE_LIMIT_SECRET?: string
-}
-
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
+    const route = resolveProxyMonitorRequestRoute(url.pathname)
     try {
-      if (request.method === 'GET' && url.pathname === '/api/route') return configuredRoute(request, env, url)
-      if (request.method === 'POST' && url.pathname === '/api/proxy-probe') return explicitProxy(request, env, url)
-      if (url.pathname.startsWith('/api/')) return json({ error: 'Not found.' }, 404)
+      if (request.method === 'GET' && route.pathname === '/api/route') return await configuredRoute(request, env, url)
+      if (request.method === 'POST' && route.pathname === '/api/proxy-probe') return await explicitProxy(request, env, url)
+      if (route.pathname.startsWith('/api/')) return json({ error: 'Not found.' }, 404)
       return addHeaders(await env.ASSETS.fetch(request))
     } catch (error) {
-      console.warn('proxy_monitor_request_failed', { path: url.pathname, error: error instanceof Error ? error.name : 'unknown' })
+      console.error(JSON.stringify({ message: 'proxy_monitor_request_failed', path: url.pathname, error: error instanceof Error ? error.name : 'unknown' }))
       return json({ error: error instanceof Error ? error.message : 'The route sample failed.' }, 400)
     }
   },
 } satisfies ExportedHandler<Env>
 
 async function configuredRoute(request: Request, env: Env, url: URL): Promise<Response> {
+  if (!browserRequestAllowed(request, url)) return json({ error: 'Cross-site route observations are not allowed.' }, 403)
   const sourceIp = request.headers.get('CF-Connecting-IP') || localIp(url)
   if (!sourceIp) return json({ error: 'The configured route could not be observed.' }, 503)
   if (!await rateAllowed(request, env, url, 'configured', 90)) return json({ error: 'This monitor reached its configured-route request limit.' }, 429)
@@ -75,6 +72,13 @@ async function rateAllowed(request: Request, env: Env, url: URL, scope: string, 
 function sameOrigin(request: Request, url: URL): boolean {
   const origin = request.headers.get('Origin')
   return !origin ? isLocal(url) : origin === url.origin
+}
+
+function browserRequestAllowed(request: Request, url: URL): boolean {
+  const origin = request.headers.get('Origin')
+  if (origin && origin !== url.origin) return false
+  const fetchSite = request.headers.get('Sec-Fetch-Site')
+  return !fetchSite || fetchSite === 'same-origin' || fetchSite === 'none'
 }
 
 function localIp(url: URL): string { return isLocal(url) ? '198.51.100.10' : '' }

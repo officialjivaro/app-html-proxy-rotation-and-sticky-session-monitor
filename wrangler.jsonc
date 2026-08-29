@@ -3,8 +3,12 @@
   "name": "worker-proxy-rotation-monitor",
   "main": "worker-proxy-rotation-monitor/src/index.ts",
   "compatibility_date": "2026-08-28",
-  "workers_dev": true,
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
   "preview_urls": false,
+  "routes": [
+    { "pattern": "aerod.net/apps/proxy-rotation-sticky-session-monitor/api/*", "zone_name": "aerod.net" }
+  ],
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

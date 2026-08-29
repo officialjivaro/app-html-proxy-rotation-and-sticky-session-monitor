@@ -19,5 +19,6 @@ export function securityHeaders(): Record<string, string> {
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
+    'X-Robots-Tag': 'noindex, nofollow',
   }
 }

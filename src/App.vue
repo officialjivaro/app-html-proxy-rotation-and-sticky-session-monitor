@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref } from 'vue'
 import AppHeader from './components/AppHeader.vue'
 import { formatDuration, summarizeSamples, type RouteSample } from './monitor'
+import { proxyMonitorAppPath } from './mountedPath'
 
 type Mode = 'configured' | 'explicit'
 
@@ -17,6 +18,8 @@ const username = ref('')
 const password = ref('')
 const sampling = ref(false)
 let monitorTimer = 0
+
+const requestPath = (path: string) => proxyMonitorAppPath(window.location.pathname, path)
 
 const summary = computed(() => summarizeSamples(samples.value))
 const currentSample = computed(() => [...samples.value].reverse().find((sample) => sample.ok))
@@ -75,14 +78,14 @@ async function takeSample(): Promise<void> {
 }
 
 async function fetchConfiguredRoute(): Promise<RouteSample> {
-  const response = await fetch('/api/route', { headers: { Accept: 'application/json' }, cache: 'no-store' })
+  const response = await fetch(requestPath('/api/route'), { headers: { Accept: 'application/json' }, cache: 'no-store' })
   const data = await response.json() as RouteSample & { error?: string }
   if (!response.ok) throw new Error(data.error || 'Configured route could not be observed.')
   return data
 }
 
 async function fetchExplicitRoute(): Promise<RouteSample> {
-  const response = await fetch('/api/proxy-probe', {
+  const response = await fetch(requestPath('/api/proxy-probe'), {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     cache: 'no-store',

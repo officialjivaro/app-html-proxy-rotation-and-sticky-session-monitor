@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 
-export class ProxyRateLimiter extends DurableObject<Record<string, unknown>> {
-  constructor(ctx: DurableObjectState, env: Record<string, unknown>) {
+export class ProxyRateLimiter extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     ctx.blockConcurrencyWhile(async () => {
       this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS limit_state (
