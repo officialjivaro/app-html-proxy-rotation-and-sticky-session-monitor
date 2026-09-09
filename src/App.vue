@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import AppHeader from './components/AppHeader.vue'
-import { formatDuration, summarizeSamples, type RouteSample } from './monitor'
+import { formatDuration, isRouteSample, summarizeSamples, type RouteSample } from './monitor'
 import { proxyMonitorAppPath } from './mountedPath'
 
 type Mode = 'configured' | 'explicit'
@@ -18,6 +18,8 @@ const username = ref('')
 const password = ref('')
 const sampling = ref(false)
 let monitorTimer = 0
+let runVersion = 0
+let activeRequest: AbortController | null = null
 
 const requestPath = (path: string) => proxyMonitorAppPath(window.location.pathname, path)
 
@@ -39,7 +41,7 @@ function switchMode(next: Mode): void {
 
 async function startMonitor(): Promise<void> {
   if (mode.value === 'explicit' && !validateExplicitForm()) return
-  stopTimer()
+  cancelSampling()
   samples.value = []
   errorMessage.value = ''
   status.value = 'running'
@@ -49,26 +51,30 @@ async function startMonitor(): Promise<void> {
 
 async function takeSample(): Promise<void> {
   if (sampling.value || status.value !== 'running') return
+  const version = runVersion
   sampling.value = true
   try {
     const sample = mode.value === 'configured' ? await fetchConfiguredRoute() : await fetchExplicitRoute()
+    if (version !== runVersion || status.value !== 'running') return
     samples.value.push(sample)
     activityMessage.value = sample.ok
       ? `Sample ${samples.value.length} observed ${sample.ip}.`
       : `Sample ${samples.value.length} could not observe a route.`
-  } catch (error) {
+  } catch {
+    if (version !== runVersion || status.value !== 'running') return
     samples.value.push({
       ok: false,
       ip: '',
       family: 'Unknown',
       observedAt: new Date().toISOString(),
-      error: error instanceof Error ? error.message : 'Route sample failed.',
+      error: 'Route sample unavailable. Check your connection or proxy settings, then stop and restart the monitor.',
     })
-    activityMessage.value = `Sample ${samples.value.length} failed without exposing credentials.`
+    activityMessage.value = `Sample ${samples.value.length} failed. Check your connection or proxy settings; no route was inferred from this failure.`
   } finally {
-    sampling.value = false
+    if (version === runVersion) sampling.value = false
   }
 
+  if (version !== runVersion) return
   if (samples.value.length >= maximumSamples.value) {
     status.value = 'done'
     activityMessage.value = 'The bounded monitor completed.'
@@ -78,14 +84,11 @@ async function takeSample(): Promise<void> {
 }
 
 async function fetchConfiguredRoute(): Promise<RouteSample> {
-  const response = await fetch(requestPath('/api/route'), { headers: { Accept: 'application/json' }, cache: 'no-store' })
-  const data = await response.json() as RouteSample & { error?: string }
-  if (!response.ok) throw new Error(data.error || 'Configured route could not be observed.')
-  return data
+  return requestSample('/api/route', { headers: { Accept: 'application/json' }, cache: 'no-store' })
 }
 
 async function fetchExplicitRoute(): Promise<RouteSample> {
-  const response = await fetch(requestPath('/api/proxy-probe'), {
+  return requestSample('/api/proxy-probe', {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     cache: 'no-store',
@@ -97,9 +100,37 @@ async function fetchExplicitRoute(): Promise<RouteSample> {
       password: password.value,
     }),
   })
-  const data = await response.json() as RouteSample & { error?: string }
-  if (!response.ok) throw new Error(data.error || 'The explicit proxy sample failed.')
-  return data
+}
+
+async function requestSample(path: string, init: RequestInit): Promise<RouteSample> {
+  const controller = new AbortController()
+  activeRequest = controller
+  const timer = window.setTimeout(() => controller.abort(), 15_000)
+  let responseStatus = 0
+  try {
+    const response = await fetch(requestPath(path), { ...init, signal: controller.signal })
+    responseStatus = response.status
+    if (!response.ok) throw new Error('Route request failed')
+    const data: unknown = await response.json()
+    if (!isRouteSample(data)) throw new Error('Invalid route response')
+    return data.ok ? data : { ...data, error: 'No route was observed. Check your connection or proxy settings and retry.' }
+  } catch (error) {
+    // Do not log endpoints, credentials, IP observations, or response bodies.
+    if (activeRequest === controller) console.warn('Aerod route sample unavailable.', { status: responseStatus })
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+    if (activeRequest === controller) activeRequest = null
+  }
+}
+
+function cancelSampling(): void {
+  stopTimer()
+  runVersion++
+  const pending = activeRequest
+  activeRequest = null
+  pending?.abort()
+  sampling.value = false
 }
 
 function validateExplicitForm(): boolean {
@@ -121,7 +152,7 @@ function validateExplicitForm(): boolean {
 }
 
 function stopMonitor(): void {
-  stopTimer()
+  cancelSampling()
   if (status.value === 'running') {
     status.value = 'done'
     activityMessage.value = 'Monitor stopped. The summary covers only the samples already collected.'
@@ -129,7 +160,7 @@ function stopMonitor(): void {
 }
 
 function clearMonitor(): void {
-  stopTimer()
+  cancelSampling()
   status.value = 'idle'
   samples.value = []
   errorMessage.value = ''
@@ -141,7 +172,7 @@ function stopTimer(): void {
   monitorTimer = 0
 }
 
-onUnmounted(stopTimer)
+onUnmounted(cancelSampling)
 </script>
 
 <template>

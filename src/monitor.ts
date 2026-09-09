@@ -22,6 +22,16 @@ export type MonitorSummary = {
   averageRotationMs: number | null
 }
 
+export function isRouteSample(value: unknown): value is RouteSample {
+  if (!value || typeof value !== 'object') return false
+  const sample = value as Record<string, unknown>
+  return typeof sample.ok === 'boolean' && typeof sample.ip === 'string'
+    && (!sample.ok || sample.ip.length > 0)
+    && ['IPv4', 'IPv6', 'Unknown'].includes(String(sample.family))
+    && typeof sample.observedAt === 'string' && Number.isFinite(Date.parse(sample.observedAt))
+    && ['asn', 'organization', 'country', 'colo', 'error'].every(key => sample[key] === undefined || typeof sample[key] === 'string')
+}
+
 export function summarizeSamples(samples: RouteSample[]): MonitorSummary {
   const successful = samples.filter((sample) => sample.ok && sample.ip)
   const failures = samples.length - successful.length
